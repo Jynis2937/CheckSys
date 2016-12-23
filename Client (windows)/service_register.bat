@@ -1,0 +1,1 @@
+sc create hw_profile binPath= "C:\hw_profile\hw_profile_service.exe 127.0.0.1 2937"
