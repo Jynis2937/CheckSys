@@ -18,21 +18,16 @@
     <ClCompile Include="run.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="getter.cpp">
+    <ClCompile Include="main.cpp">
       <Filter>Header Files</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="getter.h">
+    <ClInclude Include="main.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-  </ItemGroup>
-  <ItemGroup>
-    <EmbeddedResource Include="getter.resx">
-      <Filter>Resource Files</Filter>
-    </EmbeddedResource>
-  </ItemGroup>
-  <ItemGroup>
-    <None Include="ClassDiagram.cd" />
+    <ClInclude Include="socket_exception.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

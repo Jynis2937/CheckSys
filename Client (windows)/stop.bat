@@ -1,1 +1,0 @@
-stop hw_profile

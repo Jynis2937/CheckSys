@@ -1,4 +1,4 @@
-#include "getter.h"
+#include "main.h"
 
 using namespace System;
 using namespace System::Windows::Forms;
@@ -9,6 +9,6 @@ void Main(array<System::String^>^ Args)
 	Application::EnableVisualStyles();
 	Application::SetCompatibleTextRenderingDefault(false);
 
-	receiver::getter Getter(2937);
-	Application::Run(%Getter);
+	CheckSys::CheckSysMain MainForm(2937);
+	Application::Run(%MainForm);
 }
