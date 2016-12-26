@@ -2,6 +2,9 @@
 #include <exception>
 #include <string>
 
+/*
+* @brief    A nice wrapper for throwing exceptions around WinSock2 error.
+*/
 class SocketException : std::exception
 {
 public:

@@ -5,7 +5,6 @@ SocketException::SocketException(SOCKET_ISSUE_FOR_SERVER Issue)
 {
 	;
 }
-
 const char* SocketException::what(void)
 {
 	switch (SocketIssue)
@@ -32,8 +31,22 @@ const char* SocketException::what(void)
 
 	return StlIssueMessage.c_str();
 }
-
 SocketException::SOCKET_ISSUE_FOR_SERVER SocketException::GetErrorCode(void)
 {
 	return SocketIssue;
+}
+
+System::Void MarshalString(System::String^ SystemString, string& RefStlString)
+{
+	using namespace System::Runtime::InteropServices;
+	LPCSTR PtrString = (LPCSTR)(Marshal::StringToHGlobalAnsi(SystemString)).ToPointer();
+	RefStlString = PtrString;
+	Marshal::FreeHGlobal(System::IntPtr((LPVOID)PtrString));
+}
+System::Void MarshalString(System::String^ SystemString, wstring& RefStlString)
+{
+	using namespace System::Runtime::InteropServices;
+	LPCWSTR PtrWstring = (LPCWSTR)(Marshal::StringToHGlobalUni(SystemString)).ToPointer();
+	RefStlString = PtrWstring;
+	Marshal::FreeHGlobal(System::IntPtr((LPVOID)PtrWstring));
 }

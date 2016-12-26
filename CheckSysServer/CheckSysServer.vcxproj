@@ -139,12 +139,20 @@
     <ClInclude Include="main.h">
       <FileType>CppForm</FileType>
     </ClInclude>
+    <ClInclude Include="marshal.h" />
     <ClInclude Include="socket_exception.h" />
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="main.resx">
       <DependentUpon>main.h</DependentUpon>
     </EmbeddedResource>
+  </ItemGroup>
+  <ItemGroup>
+    <Image Include="$this.icon.ico" />
+    <Image Include="Icon1.ico" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="$this.icon" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

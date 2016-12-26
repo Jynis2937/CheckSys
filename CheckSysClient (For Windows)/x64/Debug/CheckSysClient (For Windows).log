@@ -1,0 +1,17 @@
+﻿  service.cpp
+c:\users\lee hyun\documents\checksys\checksysclient (for windows)\log_event.h(14): warning C4996: 'wcsncat': This function or variable may be unsafe. Consider using wcsncat_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+  c:\program files (x86)\windows kits\10\include\10.0.10240.0\ucrt\corecrt_wstring.h(182): note: see declaration of 'wcsncat'
+c:\users\lee hyun\documents\checksys\checksysclient (for windows)\log_event.h(38): warning C4996: '_wfopen': This function or variable may be unsafe. Consider using _wfopen_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+  c:\program files (x86)\windows kits\10\include\10.0.10240.0\ucrt\corecrt_wstdio.h(129): note: see declaration of '_wfopen'
+c:\users\lee hyun\documents\checksys\checksysclient (for windows)\service.cpp(23): warning C4129: 'H': unrecognized character escape sequence
+c:\users\lee hyun\documents\checksys\checksysclient (for windows)\service.cpp(73): warning C4477: 'printf' : format string '%s' requires an argument of type 'char *', but variadic argument 1 has type 'LPTSTR'
+  c:\users\lee hyun\documents\checksys\checksysclient (for windows)\service.cpp(73): note: consider using '%ls' in the format string
+  c:\users\lee hyun\documents\checksys\checksysclient (for windows)\service.cpp(73): note: consider using '%lls' in the format string
+  c:\users\lee hyun\documents\checksys\checksysclient (for windows)\service.cpp(73): note: consider using '%Ls' in the format string
+  c:\users\lee hyun\documents\checksys\checksysclient (for windows)\service.cpp(73): note: consider using '%ws' in the format string
+c:\users\lee hyun\documents\checksys\checksysclient (for windows)\service.cpp(175): warning C4390: ';': empty controlled statement found; is this the intent?
+c:\users\lee hyun\documents\checksys\checksysclient (for windows)\service.cpp(176): warning C4390: ';': empty controlled statement found; is this the intent?
+c:\users\lee hyun\documents\checksys\checksysclient (for windows)\service.cpp(181): warning C4996: 'sprintf': This function or variable may be unsafe. Consider using sprintf_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+  c:\program files (x86)\windows kits\10\include\10.0.10240.0\ucrt\stdio.h(1769): note: see declaration of 'sprintf'
+  CheckSysClient (For Windows).vcxproj -> C:\Users\Lee Hyun\Documents\CheckSys\x64\Debug\CheckSysClient (For Windows).exe
+  CheckSysClient (For Windows).vcxproj -> C:\Users\Lee Hyun\Documents\CheckSys\x64\Debug\CheckSysClient (For Windows).pdb (Full PDB)

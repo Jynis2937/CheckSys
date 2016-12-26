@@ -5,13 +5,16 @@
 #include <msclr\marshal_cppstd.h>
 
 #include <mmsystem.h>
+#include <Windows.h>
 #include <Winsock.h>
 #pragma comment(lib, "Winmm.lib")
+#pragma comment(lib, "User32.lib")
 #pragma comment(lib,"wsock32.lib")
 
 #using <system.dll>
 
 #include "socket_exception.h"
+#include "marshal.h"
 
 #define MAX_CLIENT_NUM 65535
 #define BACKLOG 10
@@ -44,6 +47,7 @@ namespace CheckSys
 
 	static bool Exit = false;
 	static bool IsWarnFilePathDefault = true;
+	
 	static WSADATA WinSock;
 	static SOCKADDR_IN Server;
 	static SOCKADDR_IN Client;
@@ -57,6 +61,7 @@ namespace CheckSys
 	public ref class CheckSysMain : public System::Windows::Forms::Form
 	{
 	private:
+		bool IsServerClosed;
 		bool IsThreadBegun;
 		Thread^ AcceptSocketThread;
 		Thread^ GetThread;
@@ -66,8 +71,10 @@ namespace CheckSys
 
 		System::Windows::Forms::Label^  LabelMaximum;
 		System::Windows::Forms::Label^  LabelCurrentUserNumber;
+		System::Windows::Forms::Label^  LabelCurrentDisconnectedUserNumber;
 		System::Windows::Forms::Label^  LabelPort;
 		System::Windows::Forms::Label^  LabelBacklog;
+		System::Windows::Forms::Label^  LabelServerIp;
 
 		System::Windows::Forms::Button^  ButtonServerStart;
 		System::Windows::Forms::Button^  ButtonAlarm;
@@ -91,9 +98,8 @@ namespace CheckSys
 		System::Windows::Forms::TextBox^  TextBoxRepeatedCycle;
 		System::Windows::Forms::TextBox^  TextBoxBeepFilePath;
 		System::Windows::Forms::CheckBox^  CheckBoxAlarmToAllUsers;
-
-
-
+		System::Windows::Forms::Label^  LabelMapperDescription;
+		System::Windows::Forms::Button^  ButtonHowToInquiry;
 
 		System::Windows::Forms::DataGridView^  ClientStatusGridView;
 		System::Windows::Forms::DataGridViewTextBoxColumn^  Name;
@@ -104,24 +110,11 @@ namespace CheckSys
 		System::Windows::Forms::DataGridViewComboBoxColumn^  Mount;
 		System::Windows::Forms::DataGridViewTextBoxColumn^  IsConnected;
 		System::Windows::Forms::DataGridViewTextBoxColumn^  SocketValue;
+		
 
 	public:
-		void MarshalString(String^ SystemString, string& RefStlString)
-		{
-			using namespace Runtime::InteropServices;
-			LPCSTR PtrString = (LPCSTR)(Marshal::StringToHGlobalAnsi(SystemString)).ToPointer();
-			RefStlString = PtrString;
-			Marshal::FreeHGlobal(IntPtr((LPVOID)PtrString));
-		}
-		void MarshalString(String^ SystemString, wstring& RefStlString)
-		{
-			using namespace Runtime::InteropServices;
-			LPCWSTR PtrWstring = (LPCWSTR)(Marshal::StringToHGlobalUni(SystemString)).ToPointer();
-			RefStlString = PtrWstring;
-			Marshal::FreeHGlobal(IntPtr((LPVOID)PtrWstring));
-		}
-
-		CheckSysMain(UINT PortToOpen) :
+		CheckSysMain::CheckSysMain(UINT PortToOpen) :
+			IsServerClosed(true),
 			IsThreadBegun(false),
 			GetThread(gcnew Thread(gcnew ThreadStart(this, &CheckSysMain::DataGridViewUpdate))),
 			ResourceAddThread(gcnew Thread(gcnew ThreadStart(this, &CheckSysMain::GetResourceFromClient))),
@@ -162,37 +155,104 @@ namespace CheckSys
 			InitializeComponent();
 		}
 
-		Void RepeatAlarm(Void)
+	protected:
+		CheckSysMain::~CheckSysMain(System::Void)
 		{
+			closesocket(ListenSocket);
+			for (auto k = 0; k != AccumulatedClientNumber; ++k)
+			{
+				closesocket(ClientSocket[k]);
+			}
+			WSACleanup();
+
+			if (components)
+			{
+				delete components;
+			}
+		}
+
+	private:
+		System::Void CheckSysMain::RepeatAlarm(System::Void)
+		{
+			array<System::Windows::Forms::RadioButton^>^ RadioButtonAlarmn =
+			{ RadioButtonAlram1 , RadioButtonAlram2, RadioButtonAlram3, RadioButtonAlram4, RadioButtonAlram5 };
 			do
 			{
-				if (0 == this->TextBoxRepeatedCycle->TextLength)
+				if (0 != this->TextBoxRepeatedCycle->Text->Length)
 				{
-					System::Threading::Thread::Sleep(1000);
-					continue;
+					System::Threading::Thread::Sleep(Convert::ToInt32(this->TextBoxRepeatedCycle->Text) * 1000);
 				}
 				else
 				{
-					array<System::Windows::Forms::RadioButton^>^ RadioButtonAlarmn =
-					{ RadioButtonAlram1 , RadioButtonAlram2, RadioButtonAlram3, RadioButtonAlram4, RadioButtonAlram5 };
-					for (auto& Resource : ClientResourceMap)
+					System::Threading::Thread::Sleep(100);
+				}
+
+				bool Checked = false;
+				for each(auto Label in RadioButtonAlarmn)
+				{
+					if (Label->Checked)
 					{
-						auto i = 0;
-						for each(auto Label in RadioButtonAlarmn)
-						{
-							send(Resource.second.ClientSocket, ("Alarm" + std::to_string(i)).c_str(), 7, 0);
-						}
-						++i;
+						Checked = true;
+					}
+				}
+				if (true == Checked)
+				{
+					if (0 == this->TextBoxRepeatedCycle->TextLength)
+					{
+						System::Threading::Thread::Sleep(1000);
+						continue;
 					}
 
-					System::Threading::Thread::Sleep(Convert::ToInt32(this->TextBoxRepeatedCycle->Text) * 1000);
+					if (true == this->CheckBoxAlarmToAllUsers->Checked)
+					{
+						for (auto& Resource : ClientResourceMap)
+						{
+							auto n = 1;
+							for each(auto Label in RadioButtonAlarmn)
+							{
+								if (Label->Checked)
+								{
+									send(Resource.second.ClientSocket, ("Alarm" + std::to_string(n)).c_str(), 7, 0);
+								}
+								++n;
+							}
+						}
+					}
+					else
+					{
+						DataGridViewSelectedRowCollection^ SelectedRowCollection = this->ClientStatusGridView->SelectedRows;
+						string StlString;
+
+						if (0 == SelectedRowCollection->Count)
+						{
+							continue;
+						}
+						for (auto i = 0; i != SelectedRowCollection->Count; ++i)
+						{
+							auto n = 1;
+							for each(auto Label in RadioButtonAlarmn)
+							{
+								if (Label->Checked)
+								{
+									MarshalString(SelectedRowCollection[i]->Cells[0]->Value->ToString(), StlString);
+									send(ClientResourceMap[StlString].ClientSocket, ("Alarm" + std::to_string(n)).c_str(), 7, 0);
+								}
+								++n;
+							}
+						}
+					}
 				}
 			} while (true != Exit);
+
 		}
-		void AcceptSocket(void)
+		System::Void CheckSysMain::AcceptSocket(System::Void)
 		{
 			while (AccumulatedClientNumber < MAX_CLIENT_NUM)
 			{
+				if (true == Exit)
+				{
+					return;
+				}
 				if ((ClientSocket[AccumulatedClientNumber] = accept(ListenSocket, NULL, NULL)) == INVALID_SOCKET)
 				{
 					//	throw SocketException(SocketException::SOCKET_ISSUE_FOR_SERVER::Accept);
@@ -202,7 +262,7 @@ namespace CheckSys
 				++CurrentClientNumber;
 			}
 		}
-		void UpdateSelectedItem(void)
+		System::Void CheckSysMain::UpdateSelectedItem(System::Void)
 		{
 			do
 			{
@@ -234,12 +294,13 @@ namespace CheckSys
 				System::Threading::Thread::Sleep(100);
 			} while (true != Exit);
 		}
-		void DataGridViewUpdate(void)
+		System::Void CheckSysMain::DataGridViewUpdate(System::Void)
 		{
 			auto RowCount = 0;
 			do
 			{
-				this->LabelCurrentUserNumber->Text = "현재인원 : " + ClientResourceMap.size();
+				this->LabelCurrentUserNumber->Text = "현재인원 : " + CurrentClientNumber.ToString();
+				this->LabelCurrentDisconnectedUserNumber->Text = "접속 끊김 : " + (this->ClientStatusGridView->Rows->Count - CurrentClientNumber - 1).ToString();
 				while (RowCount < ClientResourceMap.size())
 				{
 					++RowCount;
@@ -278,7 +339,7 @@ namespace CheckSys
 				System::Threading::Thread::Sleep(1000);
 			} while (true != Exit);
 		}
-		void GetResourceFromClient(void)
+		System::Void CheckSysMain::GetResourceFromClient(System::Void)
 		{
 			CHAR ReceivedMessage[0x400];
 			UINT CpuCycle, RamUsage, HddFreeRatio;
@@ -400,7 +461,7 @@ namespace CheckSys
 							{
 								ClientResourceMap[UserName] =
 									RESOURCE{ ClientSocket[k], CpuCycle, RamUsage, HddFreeRatio, !ConnectionFinish, HddFreeRatioOnMountedDirectory };
-								if (ConnectionFinish == TRUE)
+								if (!ConnectionFinish == FALSE)
 								{
 									--CurrentClientNumber;
 								}
@@ -410,22 +471,6 @@ namespace CheckSys
 					System::Threading::Thread::Sleep(100);
 				}
 			} while (true != Exit);
-		}
-
-	protected:
-		~CheckSysMain()
-		{
-			closesocket(ListenSocket);
-			for (auto k = 0; k != AccumulatedClientNumber; ++k)
-			{
-				closesocket(ClientSocket[k]);
-			}
-			WSACleanup();
-
-			if (components)
-			{
-				delete components;
-			}
 		}
 
 	protected:
@@ -446,7 +491,6 @@ namespace CheckSys
 			System::Windows::Forms::DataGridViewCellStyle^  dataGridViewCellStyle3 = (gcnew System::Windows::Forms::DataGridViewCellStyle());
 			System::Windows::Forms::DataGridViewCellStyle^  dataGridViewCellStyle4 = (gcnew System::Windows::Forms::DataGridViewCellStyle());
 			System::Windows::Forms::DataGridViewCellStyle^  dataGridViewCellStyle5 = (gcnew System::Windows::Forms::DataGridViewCellStyle());
-			System::ComponentModel::ComponentResourceManager^  resources = (gcnew System::ComponentModel::ComponentResourceManager(CheckSysMain::typeid));
 			this->ClientStatusGridView = (gcnew System::Windows::Forms::DataGridView());
 			this->Name = (gcnew System::Windows::Forms::DataGridViewTextBoxColumn());
 			this->Cpu = (gcnew System::Windows::Forms::DataGridViewTextBoxColumn());
@@ -480,6 +524,10 @@ namespace CheckSys
 			this->TextBoxRepeatedCycle = (gcnew System::Windows::Forms::TextBox());
 			this->LabelRepeatedCycle = (gcnew System::Windows::Forms::Label());
 			this->CheckBoxAlarmToAllUsers = (gcnew System::Windows::Forms::CheckBox());
+			this->LabelServerIp = (gcnew System::Windows::Forms::Label());
+			this->LabelMapperDescription = (gcnew System::Windows::Forms::Label());
+			this->ButtonHowToInquiry = (gcnew System::Windows::Forms::Button());
+			this->LabelCurrentDisconnectedUserNumber = (gcnew System::Windows::Forms::Label());
 			(cli::safe_cast<System::ComponentModel::ISupportInitialize^>(this->ClientStatusGridView))->BeginInit();
 			this->SuspendLayout();
 			// 
@@ -536,7 +584,7 @@ namespace CheckSys
 			this->ClientStatusGridView->RowsDefaultCellStyle = dataGridViewCellStyle8;
 			this->ClientStatusGridView->RowTemplate->DefaultCellStyle->ForeColor = System::Drawing::SystemColors::ActiveCaption;
 			this->ClientStatusGridView->RowTemplate->Height = 27;
-			this->ClientStatusGridView->Size = System::Drawing::Size(793, 415);
+			this->ClientStatusGridView->Size = System::Drawing::Size(809, 415);
 			this->ClientStatusGridView->TabIndex = 0;
 			this->ClientStatusGridView->DataError += gcnew System::Windows::Forms::DataGridViewDataErrorEventHandler(this, &CheckSysMain::ClientStatusGridView_DataError);
 			// 
@@ -595,6 +643,7 @@ namespace CheckSys
 			// 
 			this->SocketValue->HeaderText = L"소켓값";
 			this->SocketValue->Name = L"SocketValue";
+			this->SocketValue->Width = 115;
 			// 
 			// ButtonServerStart
 			// 
@@ -605,9 +654,9 @@ namespace CheckSys
 			this->ButtonServerStart->Font = (gcnew System::Drawing::Font(L"Malgun Gothic", 10.8F, System::Drawing::FontStyle::Regular, System::Drawing::GraphicsUnit::Point,
 				static_cast<System::Byte>(129)));
 			this->ButtonServerStart->ForeColor = System::Drawing::SystemColors::ActiveCaption;
-			this->ButtonServerStart->Location = System::Drawing::Point(50, 435);
+			this->ButtonServerStart->Location = System::Drawing::Point(35, 435);
 			this->ButtonServerStart->Name = L"ButtonServerStart";
-			this->ButtonServerStart->Size = System::Drawing::Size(124, 63);
+			this->ButtonServerStart->Size = System::Drawing::Size(157, 63);
 			this->ButtonServerStart->TabIndex = 1;
 			this->ButtonServerStart->Text = L"서버 열기";
 			this->ButtonServerStart->UseVisualStyleBackColor = false;
@@ -619,11 +668,11 @@ namespace CheckSys
 			this->LabelCurrentUserNumber->Font = (gcnew System::Drawing::Font(L"Malgun Gothic", 9, System::Drawing::FontStyle::Regular, System::Drawing::GraphicsUnit::Point,
 				static_cast<System::Byte>(129)));
 			this->LabelCurrentUserNumber->ForeColor = System::Drawing::SystemColors::ActiveCaption;
-			this->LabelCurrentUserNumber->Location = System::Drawing::Point(43, 571);
+			this->LabelCurrentUserNumber->Location = System::Drawing::Point(31, 576);
 			this->LabelCurrentUserNumber->Name = L"LabelCurrentUserNumber";
-			this->LabelCurrentUserNumber->Size = System::Drawing::Size(82, 20);
+			this->LabelCurrentUserNumber->Size = System::Drawing::Size(72, 20);
 			this->LabelCurrentUserNumber->TabIndex = 2;
-			this->LabelCurrentUserNumber->Text = L"현재 인원 :";
+			this->LabelCurrentUserNumber->Text = L"접속 중 : ";
 			// 
 			// ButtonAlarm
 			// 
@@ -634,7 +683,7 @@ namespace CheckSys
 			this->ButtonAlarm->Font = (gcnew System::Drawing::Font(L"Malgun Gothic", 10.2F, System::Drawing::FontStyle::Regular, System::Drawing::GraphicsUnit::Point,
 				static_cast<System::Byte>(129)));
 			this->ButtonAlarm->ForeColor = System::Drawing::SystemColors::ActiveCaption;
-			this->ButtonAlarm->Location = System::Drawing::Point(212, 436);
+			this->ButtonAlarm->Location = System::Drawing::Point(224, 436);
 			this->ButtonAlarm->Name = L"ButtonAlarm";
 			this->ButtonAlarm->Size = System::Drawing::Size(124, 62);
 			this->ButtonAlarm->TabIndex = 4;
@@ -648,7 +697,7 @@ namespace CheckSys
 			this->LabelPort->Font = (gcnew System::Drawing::Font(L"Malgun Gothic", 9, System::Drawing::FontStyle::Regular, System::Drawing::GraphicsUnit::Point,
 				static_cast<System::Byte>(129)));
 			this->LabelPort->ForeColor = System::Drawing::SystemColors::ActiveCaption;
-			this->LabelPort->Location = System::Drawing::Point(43, 600);
+			this->LabelPort->Location = System::Drawing::Point(31, 672);
 			this->LabelPort->Name = L"LabelPort";
 			this->LabelPort->Size = System::Drawing::Size(47, 20);
 			this->LabelPort->TabIndex = 2;
@@ -660,7 +709,7 @@ namespace CheckSys
 			this->LabelBacklog->Font = (gcnew System::Drawing::Font(L"Malgun Gothic", 9, System::Drawing::FontStyle::Regular, System::Drawing::GraphicsUnit::Point,
 				static_cast<System::Byte>(129)));
 			this->LabelBacklog->ForeColor = System::Drawing::SystemColors::ActiveCaption;
-			this->LabelBacklog->Location = System::Drawing::Point(44, 627);
+			this->LabelBacklog->Location = System::Drawing::Point(32, 702);
 			this->LabelBacklog->Name = L"LabelBacklog";
 			this->LabelBacklog->Size = System::Drawing::Size(67, 20);
 			this->LabelBacklog->TabIndex = 13;
@@ -672,7 +721,7 @@ namespace CheckSys
 			this->RadioButtonAlram1->Font = (gcnew System::Drawing::Font(L"Malgun Gothic", 9, System::Drawing::FontStyle::Regular, System::Drawing::GraphicsUnit::Point,
 				static_cast<System::Byte>(129)));
 			this->RadioButtonAlram1->ForeColor = System::Drawing::SystemColors::ActiveCaption;
-			this->RadioButtonAlram1->Location = System::Drawing::Point(364, 440);
+			this->RadioButtonAlram1->Location = System::Drawing::Point(376, 440);
 			this->RadioButtonAlram1->Name = L"RadioButtonAlram1";
 			this->RadioButtonAlram1->Size = System::Drawing::Size(73, 24);
 			this->RadioButtonAlram1->TabIndex = 5;
@@ -686,7 +735,7 @@ namespace CheckSys
 			this->RadioButtonAlram2->Font = (gcnew System::Drawing::Font(L"Malgun Gothic", 9, System::Drawing::FontStyle::Regular, System::Drawing::GraphicsUnit::Point,
 				static_cast<System::Byte>(129)));
 			this->RadioButtonAlram2->ForeColor = System::Drawing::SystemColors::ActiveCaption;
-			this->RadioButtonAlram2->Location = System::Drawing::Point(443, 439);
+			this->RadioButtonAlram2->Location = System::Drawing::Point(455, 439);
 			this->RadioButtonAlram2->Name = L"RadioButtonAlram2";
 			this->RadioButtonAlram2->Size = System::Drawing::Size(73, 24);
 			this->RadioButtonAlram2->TabIndex = 5;
@@ -700,7 +749,7 @@ namespace CheckSys
 			this->RadioButtonAlram3->Font = (gcnew System::Drawing::Font(L"Malgun Gothic", 9, System::Drawing::FontStyle::Regular, System::Drawing::GraphicsUnit::Point,
 				static_cast<System::Byte>(129)));
 			this->RadioButtonAlram3->ForeColor = System::Drawing::SystemColors::ActiveCaption;
-			this->RadioButtonAlram3->Location = System::Drawing::Point(522, 439);
+			this->RadioButtonAlram3->Location = System::Drawing::Point(534, 439);
 			this->RadioButtonAlram3->Name = L"RadioButtonAlram3";
 			this->RadioButtonAlram3->Size = System::Drawing::Size(73, 24);
 			this->RadioButtonAlram3->TabIndex = 5;
@@ -714,7 +763,7 @@ namespace CheckSys
 			this->RadioButtonAlram4->Font = (gcnew System::Drawing::Font(L"Malgun Gothic", 9, System::Drawing::FontStyle::Regular, System::Drawing::GraphicsUnit::Point,
 				static_cast<System::Byte>(129)));
 			this->RadioButtonAlram4->ForeColor = System::Drawing::SystemColors::ActiveCaption;
-			this->RadioButtonAlram4->Location = System::Drawing::Point(364, 470);
+			this->RadioButtonAlram4->Location = System::Drawing::Point(376, 470);
 			this->RadioButtonAlram4->Name = L"RadioButtonAlram4";
 			this->RadioButtonAlram4->Size = System::Drawing::Size(73, 24);
 			this->RadioButtonAlram4->TabIndex = 5;
@@ -728,7 +777,7 @@ namespace CheckSys
 			this->RadioButtonAlram5->Font = (gcnew System::Drawing::Font(L"Malgun Gothic", 9, System::Drawing::FontStyle::Regular, System::Drawing::GraphicsUnit::Point,
 				static_cast<System::Byte>(129)));
 			this->RadioButtonAlram5->ForeColor = System::Drawing::SystemColors::ActiveCaption;
-			this->RadioButtonAlram5->Location = System::Drawing::Point(443, 469);
+			this->RadioButtonAlram5->Location = System::Drawing::Point(455, 469);
 			this->RadioButtonAlram5->Name = L"RadioButtonAlram5";
 			this->RadioButtonAlram5->Size = System::Drawing::Size(73, 24);
 			this->RadioButtonAlram5->TabIndex = 5;
@@ -746,9 +795,9 @@ namespace CheckSys
 			this->ButtonIsOn->Font = (gcnew System::Drawing::Font(L"Malgun Gothic", 7.8F, System::Drawing::FontStyle::Bold, System::Drawing::GraphicsUnit::Point,
 				static_cast<System::Byte>(129)));
 			this->ButtonIsOn->ForeColor = System::Drawing::Color::White;
-			this->ButtonIsOn->Location = System::Drawing::Point(50, 506);
+			this->ButtonIsOn->Location = System::Drawing::Point(36, 506);
 			this->ButtonIsOn->Name = L"ButtonIsOn";
-			this->ButtonIsOn->Size = System::Drawing::Size(124, 24);
+			this->ButtonIsOn->Size = System::Drawing::Size(156, 24);
 			this->ButtonIsOn->TabIndex = 1;
 			this->ButtonIsOn->Text = L"Off";
 			this->ButtonIsOn->UseVisualStyleBackColor = false;
@@ -761,9 +810,9 @@ namespace CheckSys
 			this->TextBoxCpuWarningRatio->Font = (gcnew System::Drawing::Font(L"Malgun Gothic", 10.2F, System::Drawing::FontStyle::Regular, System::Drawing::GraphicsUnit::Point,
 				static_cast<System::Byte>(129)));
 			this->TextBoxCpuWarningRatio->ForeColor = System::Drawing::Color::DimGray;
-			this->TextBoxCpuWarningRatio->Location = System::Drawing::Point(211, 548);
+			this->TextBoxCpuWarningRatio->Location = System::Drawing::Point(223, 548);
 			this->TextBoxCpuWarningRatio->Name = L"TextBoxCpuWarningRatio";
-			this->TextBoxCpuWarningRatio->Size = System::Drawing::Size(119, 23);
+			this->TextBoxCpuWarningRatio->Size = System::Drawing::Size(140, 23);
 			this->TextBoxCpuWarningRatio->TabIndex = 7;
 			this->TextBoxCpuWarningRatio->TextAlign = System::Windows::Forms::HorizontalAlignment::Right;
 			// 
@@ -773,11 +822,11 @@ namespace CheckSys
 			this->LabelCpuWarningRatio->Font = (gcnew System::Drawing::Font(L"Malgun Gothic", 9, System::Drawing::FontStyle::Bold, System::Drawing::GraphicsUnit::Point,
 				static_cast<System::Byte>(129)));
 			this->LabelCpuWarningRatio->ForeColor = System::Drawing::SystemColors::ActiveCaption;
-			this->LabelCpuWarningRatio->Location = System::Drawing::Point(210, 521);
+			this->LabelCpuWarningRatio->Location = System::Drawing::Point(222, 521);
 			this->LabelCpuWarningRatio->Name = L"LabelCpuWarningRatio";
-			this->LabelCpuWarningRatio->Size = System::Drawing::Size(89, 20);
+			this->LabelCpuWarningRatio->Size = System::Drawing::Size(117, 20);
 			this->LabelCpuWarningRatio->TabIndex = 8;
-			this->LabelCpuWarningRatio->Text = L"CPU 경고율";
+			this->LabelCpuWarningRatio->Text = L"CPU 경고율 (%)";
 			// 
 			// LabelMaximum
 			// 
@@ -785,7 +834,7 @@ namespace CheckSys
 			this->LabelMaximum->Font = (gcnew System::Drawing::Font(L"Malgun Gothic", 9, System::Drawing::FontStyle::Regular, System::Drawing::GraphicsUnit::Point,
 				static_cast<System::Byte>(129)));
 			this->LabelMaximum->ForeColor = System::Drawing::SystemColors::ActiveCaption;
-			this->LabelMaximum->Location = System::Drawing::Point(44, 543);
+			this->LabelMaximum->Location = System::Drawing::Point(32, 546);
 			this->LabelMaximum->Name = L"LabelMaximum";
 			this->LabelMaximum->Size = System::Drawing::Size(82, 20);
 			this->LabelMaximum->TabIndex = 2;
@@ -797,11 +846,11 @@ namespace CheckSys
 			this->LabelRamWarningRatio->Font = (gcnew System::Drawing::Font(L"Malgun Gothic", 9, System::Drawing::FontStyle::Bold, System::Drawing::GraphicsUnit::Point,
 				static_cast<System::Byte>(129)));
 			this->LabelRamWarningRatio->ForeColor = System::Drawing::SystemColors::ActiveCaption;
-			this->LabelRamWarningRatio->Location = System::Drawing::Point(518, 521);
+			this->LabelRamWarningRatio->Location = System::Drawing::Point(595, 521);
 			this->LabelRamWarningRatio->Name = L"LabelRamWarningRatio";
-			this->LabelRamWarningRatio->Size = System::Drawing::Size(104, 20);
+			this->LabelRamWarningRatio->Size = System::Drawing::Size(132, 20);
 			this->LabelRamWarningRatio->TabIndex = 10;
-			this->LabelRamWarningRatio->Text = L"메모리 경고율";
+			this->LabelRamWarningRatio->Text = L"메모리 경고율 (%)";
 			// 
 			// TextBoxRamWarningRatio
 			// 
@@ -810,9 +859,9 @@ namespace CheckSys
 			this->TextBoxRamWarningRatio->Font = (gcnew System::Drawing::Font(L"Malgun Gothic", 10.2F, System::Drawing::FontStyle::Regular, System::Drawing::GraphicsUnit::Point,
 				static_cast<System::Byte>(129)));
 			this->TextBoxRamWarningRatio->ForeColor = System::Drawing::Color::DimGray;
-			this->TextBoxRamWarningRatio->Location = System::Drawing::Point(520, 548);
+			this->TextBoxRamWarningRatio->Location = System::Drawing::Point(597, 548);
 			this->TextBoxRamWarningRatio->Name = L"TextBoxRamWarningRatio";
-			this->TextBoxRamWarningRatio->Size = System::Drawing::Size(119, 23);
+			this->TextBoxRamWarningRatio->Size = System::Drawing::Size(140, 23);
 			this->TextBoxRamWarningRatio->TabIndex = 9;
 			this->TextBoxRamWarningRatio->TextAlign = System::Windows::Forms::HorizontalAlignment::Right;
 			// 
@@ -822,11 +871,11 @@ namespace CheckSys
 			this->LabelHddWarningRatio->Font = (gcnew System::Drawing::Font(L"Malgun Gothic", 9, System::Drawing::FontStyle::Bold, System::Drawing::GraphicsUnit::Point,
 				static_cast<System::Byte>(129)));
 			this->LabelHddWarningRatio->ForeColor = System::Drawing::SystemColors::ActiveCaption;
-			this->LabelHddWarningRatio->Location = System::Drawing::Point(362, 522);
+			this->LabelHddWarningRatio->Location = System::Drawing::Point(406, 522);
 			this->LabelHddWarningRatio->Name = L"LabelHddWarningRatio";
-			this->LabelHddWarningRatio->Size = System::Drawing::Size(104, 20);
+			this->LabelHddWarningRatio->Size = System::Drawing::Size(132, 20);
 			this->LabelHddWarningRatio->TabIndex = 12;
-			this->LabelHddWarningRatio->Text = L"디스크 경고율";
+			this->LabelHddWarningRatio->Text = L"디스크 경고율 (%)";
 			// 
 			// TextBoxHddWarningRatio
 			// 
@@ -835,9 +884,9 @@ namespace CheckSys
 			this->TextBoxHddWarningRatio->Font = (gcnew System::Drawing::Font(L"Malgun Gothic", 10.2F, System::Drawing::FontStyle::Regular, System::Drawing::GraphicsUnit::Point,
 				static_cast<System::Byte>(129)));
 			this->TextBoxHddWarningRatio->ForeColor = System::Drawing::Color::DimGray;
-			this->TextBoxHddWarningRatio->Location = System::Drawing::Point(364, 549);
+			this->TextBoxHddWarningRatio->Location = System::Drawing::Point(408, 549);
 			this->TextBoxHddWarningRatio->Name = L"TextBoxHddWarningRatio";
-			this->TextBoxHddWarningRatio->Size = System::Drawing::Size(119, 23);
+			this->TextBoxHddWarningRatio->Size = System::Drawing::Size(140, 23);
 			this->TextBoxHddWarningRatio->TabIndex = 11;
 			this->TextBoxHddWarningRatio->TextAlign = System::Windows::Forms::HorizontalAlignment::Right;
 			// 
@@ -847,7 +896,7 @@ namespace CheckSys
 			this->LabelBeepFilePath->Font = (gcnew System::Drawing::Font(L"Malgun Gothic", 9, System::Drawing::FontStyle::Bold, System::Drawing::GraphicsUnit::Point,
 				static_cast<System::Byte>(129)));
 			this->LabelBeepFilePath->ForeColor = System::Drawing::SystemColors::ActiveCaption;
-			this->LabelBeepFilePath->Location = System::Drawing::Point(208, 600);
+			this->LabelBeepFilePath->Location = System::Drawing::Point(220, 599);
 			this->LabelBeepFilePath->Name = L"LabelBeepFilePath";
 			this->LabelBeepFilePath->Size = System::Drawing::Size(250, 20);
 			this->LabelBeepFilePath->TabIndex = 17;
@@ -860,10 +909,10 @@ namespace CheckSys
 			this->TextBoxBeepFilePath->Font = (gcnew System::Drawing::Font(L"Malgun Gothic", 10.2F, System::Drawing::FontStyle::Regular, System::Drawing::GraphicsUnit::Point,
 				static_cast<System::Byte>(129)));
 			this->TextBoxBeepFilePath->ForeColor = System::Drawing::Color::DimGray;
-			this->TextBoxBeepFilePath->Location = System::Drawing::Point(209, 627);
+			this->TextBoxBeepFilePath->Location = System::Drawing::Point(221, 627);
 			this->TextBoxBeepFilePath->Name = L"TextBoxBeepFilePath";
 			this->TextBoxBeepFilePath->ReadOnly = true;
-			this->TextBoxBeepFilePath->Size = System::Drawing::Size(276, 23);
+			this->TextBoxBeepFilePath->Size = System::Drawing::Size(326, 23);
 			this->TextBoxBeepFilePath->TabIndex = 16;
 			// 
 			// ButtonOpenBeepFileDialog
@@ -876,7 +925,7 @@ namespace CheckSys
 				System::Drawing::GraphicsUnit::Point, static_cast<System::Byte>(129)));
 			this->ButtonOpenBeepFileDialog->ForeColor = System::Drawing::SystemColors::ActiveCaption;
 			this->ButtonOpenBeepFileDialog->ImageAlign = System::Drawing::ContentAlignment::TopCenter;
-			this->ButtonOpenBeepFileDialog->Location = System::Drawing::Point(456, 627);
+			this->ButtonOpenBeepFileDialog->Location = System::Drawing::Point(518, 626);
 			this->ButtonOpenBeepFileDialog->Name = L"ButtonOpenBeepFileDialog";
 			this->ButtonOpenBeepFileDialog->Size = System::Drawing::Size(29, 23);
 			this->ButtonOpenBeepFileDialog->TabIndex = 18;
@@ -891,9 +940,9 @@ namespace CheckSys
 			this->TextBoxRepeatedCycle->Font = (gcnew System::Drawing::Font(L"Malgun Gothic", 10.2F, System::Drawing::FontStyle::Regular, System::Drawing::GraphicsUnit::Point,
 				static_cast<System::Byte>(129)));
 			this->TextBoxRepeatedCycle->ForeColor = System::Drawing::Color::DimGray;
-			this->TextBoxRepeatedCycle->Location = System::Drawing::Point(522, 627);
+			this->TextBoxRepeatedCycle->Location = System::Drawing::Point(597, 627);
 			this->TextBoxRepeatedCycle->Name = L"TextBoxRepeatedCycle";
-			this->TextBoxRepeatedCycle->Size = System::Drawing::Size(119, 23);
+			this->TextBoxRepeatedCycle->Size = System::Drawing::Size(140, 23);
 			this->TextBoxRepeatedCycle->TabIndex = 11;
 			this->TextBoxRepeatedCycle->TextAlign = System::Windows::Forms::HorizontalAlignment::Right;
 			// 
@@ -903,11 +952,11 @@ namespace CheckSys
 			this->LabelRepeatedCycle->Font = (gcnew System::Drawing::Font(L"Malgun Gothic", 9, System::Drawing::FontStyle::Bold, System::Drawing::GraphicsUnit::Point,
 				static_cast<System::Byte>(129)));
 			this->LabelRepeatedCycle->ForeColor = System::Drawing::SystemColors::ActiveCaption;
-			this->LabelRepeatedCycle->Location = System::Drawing::Point(520, 600);
+			this->LabelRepeatedCycle->Location = System::Drawing::Point(595, 600);
 			this->LabelRepeatedCycle->Name = L"LabelRepeatedCycle";
-			this->LabelRepeatedCycle->Size = System::Drawing::Size(74, 20);
+			this->LabelRepeatedCycle->Size = System::Drawing::Size(139, 20);
 			this->LabelRepeatedCycle->TabIndex = 12;
-			this->LabelRepeatedCycle->Text = L"반복 주기";
+			this->LabelRepeatedCycle->Text = L"반복 주기 (초 단위)";
 			// 
 			// CheckBoxAlarmToAllUsers
 			// 
@@ -916,23 +965,78 @@ namespace CheckSys
 			this->CheckBoxAlarmToAllUsers->Font = (gcnew System::Drawing::Font(L"Malgun Gothic", 9, System::Drawing::FontStyle::Regular, System::Drawing::GraphicsUnit::Point,
 				static_cast<System::Byte>(129)));
 			this->CheckBoxAlarmToAllUsers->ForeColor = System::Drawing::SystemColors::ActiveCaption;
-			this->CheckBoxAlarmToAllUsers->Location = System::Drawing::Point(604, 440);
+			this->CheckBoxAlarmToAllUsers->Location = System::Drawing::Point(616, 440);
 			this->CheckBoxAlarmToAllUsers->Name = L"CheckBoxAlarmToAllUsers";
 			this->CheckBoxAlarmToAllUsers->Size = System::Drawing::Size(122, 24);
 			this->CheckBoxAlarmToAllUsers->TabIndex = 19;
 			this->CheckBoxAlarmToAllUsers->Text = L"모든 유저에게";
 			this->CheckBoxAlarmToAllUsers->UseVisualStyleBackColor = true;
 			// 
+			// LabelServerIp
+			// 
+			this->LabelServerIp->AutoSize = true;
+			this->LabelServerIp->Font = (gcnew System::Drawing::Font(L"Malgun Gothic", 9, System::Drawing::FontStyle::Regular, System::Drawing::GraphicsUnit::Point,
+				static_cast<System::Byte>(129)));
+			this->LabelServerIp->ForeColor = System::Drawing::SystemColors::ActiveCaption;
+			this->LabelServerIp->Location = System::Drawing::Point(31, 640);
+			this->LabelServerIp->Name = L"LabelServerIp";
+			this->LabelServerIp->Size = System::Drawing::Size(65, 20);
+			this->LabelServerIp->TabIndex = 2;
+			this->LabelServerIp->Text = L"서버 IP :";
+			// 
+			// LabelMapperDescription
+			// 
+			this->LabelMapperDescription->AutoSize = true;
+			this->LabelMapperDescription->Font = (gcnew System::Drawing::Font(L"Malgun Gothic", 9, System::Drawing::FontStyle::Regular, System::Drawing::GraphicsUnit::Point,
+				static_cast<System::Byte>(129)));
+			this->LabelMapperDescription->ForeColor = System::Drawing::SystemColors::ActiveCaption;
+			this->LabelMapperDescription->Location = System::Drawing::Point(610, 472);
+			this->LabelMapperDescription->Name = L"LabelMapperDescription";
+			this->LabelMapperDescription->Size = System::Drawing::Size(170, 20);
+			this->LabelMapperDescription->TabIndex = 13;
+			this->LabelMapperDescription->Text = L"매칭파일 : label.mapper";
+			// 
+			// ButtonHowToInquiry
+			// 
+			this->ButtonHowToInquiry->BackColor = System::Drawing::SystemColors::ButtonHighlight;
+			this->ButtonHowToInquiry->FlatAppearance->BorderColor = System::Drawing::SystemColors::ActiveCaption;
+			this->ButtonHowToInquiry->FlatAppearance->BorderSize = 2;
+			this->ButtonHowToInquiry->FlatStyle = System::Windows::Forms::FlatStyle::Flat;
+			this->ButtonHowToInquiry->Font = (gcnew System::Drawing::Font(L"Malgun Gothic", 13.8F, System::Drawing::FontStyle::Bold, System::Drawing::GraphicsUnit::Point,
+				static_cast<System::Byte>(129)));
+			this->ButtonHowToInquiry->ForeColor = System::Drawing::SystemColors::ActiveCaption;
+			this->ButtonHowToInquiry->Location = System::Drawing::Point(735, 725);
+			this->ButtonHowToInquiry->Name = L"ButtonHowToInquiry";
+			this->ButtonHowToInquiry->Size = System::Drawing::Size(45, 45);
+			this->ButtonHowToInquiry->TabIndex = 20;
+			this->ButtonHowToInquiry->Text = L"\?";
+			this->ButtonHowToInquiry->UseVisualStyleBackColor = false;
+			this->ButtonHowToInquiry->Click += gcnew System::EventHandler(this, &CheckSysMain::ButtonHowToInquiry_Click);
+			// 
+			// LabelCurrentDisconnectedUserNumber
+			// 
+			this->LabelCurrentDisconnectedUserNumber->AutoSize = true;
+			this->LabelCurrentDisconnectedUserNumber->Font = (gcnew System::Drawing::Font(L"Malgun Gothic", 9, System::Drawing::FontStyle::Regular,
+				System::Drawing::GraphicsUnit::Point, static_cast<System::Byte>(129)));
+			this->LabelCurrentDisconnectedUserNumber->ForeColor = System::Drawing::SystemColors::ActiveCaption;
+			this->LabelCurrentDisconnectedUserNumber->Location = System::Drawing::Point(31, 608);
+			this->LabelCurrentDisconnectedUserNumber->Name = L"LabelCurrentDisconnectedUserNumber";
+			this->LabelCurrentDisconnectedUserNumber->Size = System::Drawing::Size(87, 20);
+			this->LabelCurrentDisconnectedUserNumber->TabIndex = 2;
+			this->LabelCurrentDisconnectedUserNumber->Text = L"접속 끊김 : ";
+			// 
 			// CheckSysMain
 			// 
 			this->AutoScaleDimensions = System::Drawing::SizeF(8, 15);
 			this->AutoScaleMode = System::Windows::Forms::AutoScaleMode::Font;
 			this->BackColor = System::Drawing::SystemColors::ButtonHighlight;
-			this->ClientSize = System::Drawing::Size(791, 676);
+			this->ClientSize = System::Drawing::Size(803, 782);
+			this->Controls->Add(this->ButtonHowToInquiry);
 			this->Controls->Add(this->CheckBoxAlarmToAllUsers);
 			this->Controls->Add(this->ButtonOpenBeepFileDialog);
 			this->Controls->Add(this->LabelBeepFilePath);
 			this->Controls->Add(this->TextBoxBeepFilePath);
+			this->Controls->Add(this->LabelMapperDescription);
 			this->Controls->Add(this->LabelBacklog);
 			this->Controls->Add(this->LabelRepeatedCycle);
 			this->Controls->Add(this->TextBoxRepeatedCycle);
@@ -950,12 +1054,13 @@ namespace CheckSys
 			this->Controls->Add(this->ButtonAlarm);
 			this->Controls->Add(this->LabelMaximum);
 			this->Controls->Add(this->LabelPort);
+			this->Controls->Add(this->LabelServerIp);
+			this->Controls->Add(this->LabelCurrentDisconnectedUserNumber);
 			this->Controls->Add(this->LabelCurrentUserNumber);
 			this->Controls->Add(this->ButtonIsOn);
 			this->Controls->Add(this->ButtonServerStart);
 			this->Controls->Add(this->ClientStatusGridView);
-		//	this->Icon = (cli::safe_cast<System::Drawing::Icon^>(resources->GetObject(L"$this.Icon")));
-		//	this->Name = L"CheckSysMain";
+			this->Name = L"CheckSysMain";
 			this->Text = L"게이트웨이 알림 시스템";
 			this->FormClosed += gcnew System::Windows::Forms::FormClosedEventHandler(this, &CheckSysMain::CheckSysMain_FormClosed);
 			this->Load += gcnew System::EventHandler(this, &CheckSysMain::CheckSysMain_Load);
@@ -965,34 +1070,19 @@ namespace CheckSys
 
 		}
 #pragma endregion
-		BOOL GetLocalIPAddres(void)
+	private:
+		System::String^ MyOwnIPAddress()
 		{
-			WSADATA WSAData;
-			IN_ADDR Address;
-			CHAR LocalName[256];
-			CHAR IPAddress[15];
-			auto i = 0;
+			PHOSTENT HostInformation;
+			CHAR HostName[0x80]{ 0 };
 
-			if (WSAStartup(MAKEWORD(2, 2), &WSAData) != 0)
+			if (0 != gethostname(HostName, sizeof(HostName)))
 			{
-				return FALSE;
+				return nullptr;
 			}
+			HostInformation = gethostbyname(HostName);
 
-			if (gethostname(LocalName, sizeof(LocalName)) == SOCKET_ERROR)
-			{
-				return FALSE;
-			}
-
-			HOSTENT* HostEntry = gethostbyname(LocalName);
-			if (nullptr == HostEntry)
-			{
-				return FALSE;
-			}
-
-			while (HostEntry->h_addr_list[i] != nullptr)
-			{
-				memcpy(&Address, HostEntry->h_addr_list[i], HostEntry->h_length);
-			}
+			return gcnew String(inet_ntoa(*(struct in_addr*)HostInformation->h_addr_list[0]));
 		}
 
 #define MAPPER_FILE_NAME "label.mapper"
@@ -1000,7 +1090,9 @@ namespace CheckSys
 		System::Void CheckSysMain_Load(System::Object^  sender, System::EventArgs^  e)
 		{
 			this->LabelMaximum->Text = "최대인원 : " + MAX_CLIENT_NUM.ToString();
-			this->LabelCurrentUserNumber->Text = "현재인원 : 0";
+			this->LabelCurrentUserNumber->Text = "접속 중 : 0";
+			this->LabelCurrentDisconnectedUserNumber->Text = "접속 끊김 : 0";
+			this->LabelServerIp->Text = "서버 IP : " + MyOwnIPAddress();
 			this->LabelPort->Text = "서버 포트 : 2937";
 			this->LabelBacklog->Text = "백로그 : " + BACKLOG.ToString();
 
@@ -1140,6 +1232,10 @@ namespace CheckSys
 
 			this->TextBoxBeepFilePath->Text = BeepOpenFileDialog->FileName;
 			IsWarnFilePathDefault = false;
+		}
+		System::Void ButtonHowToInquiry_Click(System::Object^  sender, System::EventArgs^  e)
+		{
+			::MessageBox((HWND)this->Handle.ToPointer(), TEXT("제작자 e-mail : jynis2937@gmail.com"), TEXT("문의처"), MB_OK);
 		}
 	};
 }
